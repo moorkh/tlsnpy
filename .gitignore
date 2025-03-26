@@ -172,3 +172,8 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# virtualenv
+.tlsnpy/
+venv/
+.venv/
