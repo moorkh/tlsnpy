@@ -6,8 +6,7 @@ import os
 import tempfile
 from pathlib import Path
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa, padding
-from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import ec
 from tlsnpy import PyNotary
 
 class NotaryServer:
@@ -44,28 +43,27 @@ class NotaryServer:
         )
         
     def _generate_notary_keys(self):
-        """Generate notary signing key pair."""
+        """Generate notary signing key pair using secp256k1 curve."""
         try:
-            # Generate private key with explicit parameters
-            private_key = rsa.generate_private_key(
-                public_exponent=65537,  # Standard RSA exponent
-                key_size=2048,          # 2048-bit key
+            # Generate K256 (secp256k1) private key
+            private_key = ec.generate_private_key(
+                ec.SECP256K1()  # Use secp256k1 curve as required
             )
             
             # Get public key
             public_key = private_key.public_key()
             
-            # Save private key in traditional format
+            # Save private key in PKCS#8 format
             pem_private = private_key.private_bytes(
                 encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.TraditionalOpenSSL,  # Use traditional format
+                format=serialization.PrivateFormat.PKCS8,
                 encryption_algorithm=serialization.NoEncryption()
             )
             
             # Save public key
             pem_public = public_key.public_bytes(
                 encoding=serialization.Encoding.PEM,
-                format=serialization.PublicFormat.PKCS1  # Use PKCS1 format
+                format=serialization.PublicFormat.SubjectPublicKeyInfo
             )
             
             # Write keys atomically using temporary files
@@ -83,9 +81,18 @@ class NotaryServer:
             
             # Verify the keys can be loaded back
             with open(self.notary_key_path, 'rb') as f:
-                serialization.load_pem_private_key(f.read(), password=None)
+                loaded_private = serialization.load_pem_private_key(f.read(), password=None)
+                if not isinstance(loaded_private, ec.EllipticCurvePrivateKey):
+                    raise ValueError("Generated key is not an EC private key")
+                if not isinstance(loaded_private.curve, ec.SECP256K1):
+                    raise ValueError("Generated key is not using secp256k1 curve")
+                
             with open(self.notary_pub_key_path, 'rb') as f:
-                serialization.load_pem_public_key(f.read())
+                loaded_public = serialization.load_pem_public_key(f.read())
+                if not isinstance(loaded_public, ec.EllipticCurvePublicKey):
+                    raise ValueError("Generated key is not an EC public key")
+                if not isinstance(loaded_public.curve, ec.SECP256K1):
+                    raise ValueError("Generated key is not using secp256k1 curve")
                 
         except Exception as e:
             print(f"Error generating keys: {e}")
