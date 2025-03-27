@@ -10,13 +10,13 @@ This example demonstrates how to use the `tlsnpy` package to:
 - `tlsnpy_demo/notary.py`: Notary server setup and management
 - `tlsnpy_demo/prover.py`: Prover setup and API request proving
 - `tlsnpy_demo/demo.py`: Complete end-to-end demonstration
-- `requirements.txt`: Required Python packages
+- `pyproject.toml`: Project metadata and dependencies
 
 ## Usage
 
-1. Install requirements:
+1. Install the package in development mode:
 ```bash
-pip install -r requirements.txt
+pip install -e examples/tlsnpy_demo
 ```
 
 2. Run the demo:
