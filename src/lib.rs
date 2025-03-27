@@ -5,6 +5,8 @@ use std::net::ToSocketAddrs;
 
 use tokio::runtime::Runtime;
 use tokio::net::TcpStream;
+use tokio::sync::oneshot;
+use tokio::task::JoinHandle;
 
 use tlsn_common::config::ProtocolConfig;
 use tlsn_core::request::RequestConfig;
@@ -154,7 +156,8 @@ impl PyProver {
 pub struct PyNotary {
     rt: Runtime,
     config: NotaryServerProperties,
-    shutdown_tx: Option<tokio::sync::oneshot::Sender<()>>,
+    server_handle: Option<JoinHandle<()>>,
+    shutdown_tx: Option<oneshot::Sender<()>>,
 }
 
 #[pymethods]
@@ -207,28 +210,65 @@ impl PyNotary {
         Ok(Self {
             rt: Runtime::new().unwrap(),
             config,
+            server_handle: None,
             shutdown_tx: None,
         })
     }
 
     fn start(&mut self) -> PyResult<()> {
-        let config = self.config.clone();
-        let (shutdown_tx, _shutdown_rx) = tokio::sync::oneshot::channel();
+        // Create a new shutdown channel
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
         self.shutdown_tx = Some(shutdown_tx);
 
-        self.rt.spawn(async move {
-            if let Err(e) = run_server(&config).await {
-                eprintln!("Notary server error: {e}");
+        // Clone config for the server task
+        let config = self.config.clone();
+
+        // Spawn the server task
+        let handle = self.rt.spawn(async move {
+            // Create a future that completes when shutdown signal is received
+            let shutdown = async {
+                let _ = shutdown_rx.await;
+            };
+
+            // Run the server in a separate task so we can select between it and shutdown
+            let server_config = config.clone();
+            let server = tokio::spawn(async move {
+                run_server(&server_config).await
+            });
+
+            // Wait for either server completion or shutdown signal
+            tokio::select! {
+                _ = shutdown => {
+                    // Shutdown signal received, server will be dropped
+                    println!("Notary server shutting down...");
+                }
+                result = server => {
+                    match result {
+                        Ok(Ok(())) => println!("Notary server stopped normally"),
+                        Ok(Err(e)) => eprintln!("Notary server error: {e}"),
+                        Err(e) => eprintln!("Notary server task error: {e}"),
+                    }
+                }
             }
         });
 
+        self.server_handle = Some(handle);
         Ok(())
     }
 
     fn stop(&mut self) -> PyResult<()> {
+        // Send shutdown signal if we have a sender
         if let Some(tx) = self.shutdown_tx.take() {
             let _ = tx.send(());
         }
+
+        // Wait for the server task to complete
+        if let Some(handle) = self.server_handle.take() {
+            self.rt.block_on(async {
+                let _ = handle.await;
+            });
+        }
+
         Ok(())
     }
 }
