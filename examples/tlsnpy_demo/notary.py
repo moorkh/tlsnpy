@@ -46,26 +46,26 @@ class NotaryServer:
     def _generate_notary_keys(self):
         """Generate notary signing key pair."""
         try:
-            # Generate private key
+            # Generate private key with explicit parameters
             private_key = rsa.generate_private_key(
-                public_exponent=65537,
-                key_size=2048
+                public_exponent=65537,  # Standard RSA exponent
+                key_size=2048,          # 2048-bit key
             )
             
             # Get public key
             public_key = private_key.public_key()
             
-            # Save private key in PKCS#8 format
+            # Save private key in traditional format
             pem_private = private_key.private_bytes(
                 encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.PKCS8,
+                format=serialization.PrivateFormat.TraditionalOpenSSL,  # Use traditional format
                 encryption_algorithm=serialization.NoEncryption()
             )
             
-            # Save public key in SubjectPublicKeyInfo format
+            # Save public key
             pem_public = public_key.public_bytes(
                 encoding=serialization.Encoding.PEM,
-                format=serialization.PublicFormat.SubjectPublicKeyInfo
+                format=serialization.PublicFormat.PKCS1  # Use PKCS1 format
             )
             
             # Write keys atomically using temporary files
@@ -81,6 +81,12 @@ class NotaryServer:
                 
             print(f"Keys generated and saved to {self.data_dir}")
             
+            # Verify the keys can be loaded back
+            with open(self.notary_key_path, 'rb') as f:
+                serialization.load_pem_private_key(f.read(), password=None)
+            with open(self.notary_pub_key_path, 'rb') as f:
+                serialization.load_pem_public_key(f.read())
+                
         except Exception as e:
             print(f"Error generating keys: {e}")
             # Clean up any partially written files
