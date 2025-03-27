@@ -32,15 +32,10 @@ pub struct PyProver {
     inner: Option<ProverState>,
 }
 
-/// Internal state of the prover as it progresses through the protocol.
-/// Each variant represents a different stage of the TLS notarization process.
 #[derive(Debug)]
 enum ProverState {
-    /// Initial state after connecting to notary but before TLS handshake
     Setup(Prover<tlsn_prover::state::Setup>),
-    /// State after TLS handshake is complete
     Closed(Prover<tlsn_prover::state::Closed>),
-    /// State during the notarization process
     Notarize(Prover<tlsn_prover::state::Notarize>),
 }
 
@@ -101,7 +96,7 @@ impl PyProver {
             let addr = (server_host.as_str(), server_port)
                 .to_socket_addrs()?
                 .next()
-                .ok_or_else(|| PyRuntimeError::new_err("Invalid server address"))?;
+                .ok_or_else(|| anyhow::anyhow!("Invalid server address"))?;
             let conn = tokio::net::TcpStream::connect(addr).await?;
             let (_, fut) = prover.connect(conn.compat()).await?;
             let closed = fut.await?;
@@ -112,21 +107,29 @@ impl PyProver {
         Ok(())
     }
 
-    fn notarize(&mut self) -> PyResult<Vec<u8>> {
+    fn start_notarize(&mut self) -> PyResult<()> {
         let prover = match self.inner.take() {
             Some(ProverState::Closed(prover)) => prover.start_notarize(),
             _ => return Err(PyRuntimeError::new_err("No closed prover available")),
+        };
+
+        self.inner = Some(ProverState::Notarize(prover));
+        Ok(())
+    }
+
+    fn finalize_notarize(&mut self) -> PyResult<Vec<u8>> {
+        let prover = match self.inner.take() {
+            Some(ProverState::Notarize(prover)) => prover,
+            _ => return Err(PyRuntimeError::new_err("No notarize prover available")),
         };
 
         let result = self.rt.block_on(async move {
             let request_config = RequestConfig::default();
             let (attestation, _secrets) = prover.finalize(&request_config).await?;
             Ok::<_, anyhow::Error>(bincode::serialize(&attestation)?)
-        }).map_err(|e| PyRuntimeError::new_err(format!("Notarization failed: {e}")))?;
+        }).map_err(|e| PyRuntimeError::new_err(format!("Finalization failed: {e}")))?;
 
-        let reset_result = self.reset();
-        reset_result.map_err(|e| PyRuntimeError::new_err(format!("Reset failed after notarize: {e}")))?;
-
+        self.reset().map_err(|e| PyRuntimeError::new_err(format!("Reset failed after finalize: {e}")))?;
         Ok(result)
     }
 }
