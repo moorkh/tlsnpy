@@ -16,5 +16,6 @@ tlsn-common = { git = "https://github.com/tlsnotary/tlsn" }
 tlsn-core = { git = "https://github.com/tlsnotary/tlsn" }
 tlsn-prover = { git = "https://github.com/tlsnotary/tlsn" }
 notary-client = { git = "https://github.com/tlsnotary/tlsn" }
+notary-server = { git = "https://github.com/tlsnotary/tlsn" }
 bincode = "1.3"
 anyhow = "1.0"
